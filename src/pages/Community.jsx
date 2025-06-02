@@ -1,21 +1,39 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSelector } from 'react-redux';
 import { selectCurrentUser } from '../features/auth/authSlice';
 import { axiosPrivate } from '../services/api';
+import { 
+  ChatBubbleLeftRightIcon, 
+  HandThumbUpIcon,
+  PhotoIcon,
+  TagIcon,
+  ShieldCheckIcon,
+  XMarkIcon,
+  FunnelIcon
+} from '@heroicons/react/24/outline';
 
 const Community = () => {
   const [posts, setPosts] = useState([]);
   const [newPost, setNewPost] = useState('');
   const [loading, setLoading] = useState(true);
+  const [selectedPost, setSelectedPost] = useState(null);
+  const [comment, setComment] = useState('');
+  const [tags, setTags] = useState('');
+  const [media, setMedia] = useState(null);
+  const [mediaPreview, setMediaPreview] = useState('');
+  const [filter, setFilter] = useState('all'); // all, verified, trending
+  const fileInputRef = useRef();
   const user = useSelector(selectCurrentUser);
 
   useEffect(() => {
     loadPosts();
-  }, []);
+  }, [filter]);
 
   const loadPosts = async () => {
     try {
-      const response = await axiosPrivate.get('/community/posts');
+      const response = await axiosPrivate.get('/community/posts', {
+        params: { filter }
+      });
       setPosts(response.data);
     } catch (error) {
       console.error('Error loading posts:', error);
@@ -24,18 +42,52 @@ const Community = () => {
     }
   };
 
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setMedia(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setMediaPreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const clearMedia = () => {
+    setMedia(null);
+    setMediaPreview('');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!newPost.trim()) return;
 
+    const formData = new FormData();
+    formData.append('content', newPost);
+    if (tags) {
+      // Convert tags to JSON string
+      const tagArray = tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+      formData.append('tags', JSON.stringify(tagArray));
+    }
+    if (media) {
+      formData.append('media', media);
+    }
+
     try {
-      const response = await axiosPrivate.post('/community/posts', {
-        content: newPost,
+      const response = await axiosPrivate.post('/community/posts', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
       });
       setPosts([response.data, ...posts]);
       setNewPost('');
+      setTags('');
+      clearMedia();
     } catch (error) {
-      console.error('Error creating post:', error);
+      console.error('Error creating post:', error.response?.data?.message || error.message);
+      // You might want to show this error to the user
     }
   };
 
@@ -48,85 +100,231 @@ const Community = () => {
     }
   };
 
+  const handleComment = async (postId) => {
+    if (!comment.trim()) return;
+
+    try {
+      await axiosPrivate.post(`/community/posts/${postId}/comments`, {
+        content: comment
+      });
+      setComment('');
+      loadPosts();
+    } catch (error) {
+      console.error('Error adding comment:', error);
+    }
+  };
+
+  const handleVerify = async (postId) => {
+    try {
+      await axiosPrivate.patch(`/community/posts/${postId}/verify`);
+      loadPosts();
+    } catch (error) {
+      console.error('Error verifying post:', error);
+    }
+  };
+
   return (
-    <div className="max-w-4xl mx-auto py-8 px-4">
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold mb-4">Community Forum</h2>
-        <form onSubmit={handleSubmit} className="space-y-4">
+    <div className="max-w-4xl mx-auto px-4 py-8">
+      {/* Create Post Section */}
+      <div className="bg-white rounded-lg shadow p-6 mb-8">
+        <form onSubmit={handleSubmit}>
           <textarea
             value={newPost}
             onChange={(e) => setNewPost(e.target.value)}
-            placeholder="Share something with your community..."
-            className="w-full p-4 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            rows="3"
+            placeholder="Share your thoughts..."
+            className="w-full p-3 border rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            rows={3}
           />
-          <button
-            type="submit"
-            className="px-6 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600"
-          >
-            Post
-          </button>
+          
+          <div className="mt-4 flex items-center gap-4">
+            <div className="flex-1">
+              <input
+                type="text"
+                value={tags}
+                onChange={(e) => setTags(e.target.value)}
+                placeholder="Add tags (comma separated)"
+                className="w-full p-2 border rounded-lg"
+              />
+            </div>
+            
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              accept="image/*,video/*"
+              className="hidden"
+            />
+            
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2 text-gray-600 hover:text-blue-500"
+            >
+              <PhotoIcon className="h-6 w-6" />
+            </button>
+            
+            <button
+              type="submit"
+              disabled={!newPost.trim()}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              Post
+            </button>
+          </div>
+
+          {mediaPreview && (
+            <div className="mt-4 relative">
+              {media?.type?.startsWith('image/') ? (
+                <img src={mediaPreview} alt="Preview" className="max-h-48 rounded-lg" />
+              ) : (
+                <video src={mediaPreview} className="max-h-48 rounded-lg" controls />
+              )}
+              <button
+                type="button"
+                onClick={clearMedia}
+                className="absolute top-2 right-2 p-1 bg-gray-800 bg-opacity-50 rounded-full text-white hover:bg-opacity-75"
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
+          )}
         </form>
       </div>
 
-      <div className="space-y-6">
-        {loading ? (
-          <div>Loading...</div>
-        ) : (
-          posts.map((post) => (
-            <div
-              key={post._id}
-              className="bg-white rounded-lg shadow p-6 space-y-4"
-            >
-              <div className="flex items-center space-x-3">
-                <div className="flex-shrink-0">
-                  <div className="w-10 h-10 rounded-full bg-primary-500 flex items-center justify-center text-white font-semibold">
-                    {post.author.name[0]}
-                  </div>
-                </div>
+      {/* Filter Controls */}
+      <div className="flex items-center gap-4 mb-6">
+        <div className="flex items-center gap-2">
+          <FunnelIcon className="h-5 w-5 text-gray-500" />
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="p-2 border rounded-lg"
+          >
+            <option value="all">All Posts</option>
+            <option value="verified">Verified Only</option>
+            <option value="trending">Trending</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Posts List */}
+      {loading ? (
+        <div className="text-center py-8">
+          <div className="animate-spin h-8 w-8 mx-auto border-4 border-blue-500 border-t-transparent rounded-full"></div>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {posts.map((post) => (
+            <div key={post._id} className="bg-white rounded-lg shadow p-6">
+              <div className="flex items-start justify-between mb-4">
                 <div>
-                  <div className="font-semibold">{post.author.name}</div>
-                  <div className="text-sm text-gray-500">
+                  <h3 className="font-semibold">{post.author?.name}</h3>
+                  <p className="text-sm text-gray-500">
                     {new Date(post.createdAt).toLocaleDateString()}
-                  </div>
+                  </p>
                 </div>
+                {post.isVerified && (
+                  <ShieldCheckIcon className="h-6 w-6 text-green-500" />
+                )}
               </div>
-              <p className="text-gray-700">{post.content}</p>
-              <div className="flex items-center space-x-4">
+
+              <p className="mb-4">{post.content}</p>
+
+              {post.media?.length > 0 && (
+                <div className="mb-4">
+                  {post.media.map((m, index) => (
+                    <div key={index} className="mt-2">
+                      {m.type === 'image' ? (
+                        <img src={m.url} alt="" className="max-h-96 rounded-lg" />
+                      ) : (
+                        <video src={m.url} className="max-h-96 rounded-lg" controls />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {post.tags?.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {post.tags.map((tag, index) => (
+                    <span
+                      key={index}
+                      className="px-2 py-1 bg-gray-100 text-sm rounded-full"
+                    >
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex items-center gap-4 text-gray-600">
                 <button
                   onClick={() => handleLike(post._id)}
-                  className="flex items-center space-x-1 text-gray-500 hover:text-primary-500"
+                  className={`flex items-center gap-1 hover:text-blue-500 ${
+                    post.likes.includes(user?._id) ? 'text-blue-500' : ''
+                  }`}
                 >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-5 w-5"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                  >
-                    <path d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333v5.43a2 2 0 001.106 1.79l.05.025A4 4 0 008.943 18h5.416a2 2 0 001.962-1.608l1.2-6A2 2 0 0015.56 8H12V4a2 2 0 00-2-2 1 1 0 00-1 1v.667a4 4 0 01-.8 2.4L6.8 7.933a4 4 0 00-.8 2.4z" />
-                  </svg>
+                  <HandThumbUpIcon className="h-5 w-5" />
                   <span>{post.likes.length}</span>
                 </button>
-                <button className="flex items-center space-x-1 text-gray-500 hover:text-primary-500">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-5 w-5"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M18 5v8a2 2 0 01-2 2h-5l-5 4v-4H4a2 2 0 01-2-2V5a2 2 0 012-2h12a2 2 0 012 2zM7 8H5v2h2V8zm2 0h2v2H9V8zm6 0h-2v2h2V8z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+
+                <button
+                  onClick={() => setSelectedPost(selectedPost === post._id ? null : post._id)}
+                  className="flex items-center gap-1 hover:text-blue-500"
+                >
+                  <ChatBubbleLeftRightIcon className="h-5 w-5" />
                   <span>{post.comments.length}</span>
                 </button>
+
+                {user?.role === 'admin' && !post.isVerified && (
+                  <button
+                    onClick={() => handleVerify(post._id)}
+                    className="flex items-center gap-1 hover:text-green-500"
+                  >
+                    <ShieldCheckIcon className="h-5 w-5" />
+                    <span>Verify</span>
+                  </button>
+                )}
               </div>
+
+              {selectedPost === post._id && (
+                <div className="mt-4 space-y-4">
+                  <div className="pl-8 space-y-4">
+                    {post.comments.map((comment, index) => (
+                      <div key={index} className="bg-gray-50 p-3 rounded-lg">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium">{comment.author?.name}</span>
+                          <span className="text-sm text-gray-500">
+                            {new Date(comment.createdAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <p>{comment.content}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="pl-8 flex gap-2">
+                    <input
+                      type="text"
+                      value={comment}
+                      onChange={(e) => setComment(e.target.value)}
+                      placeholder="Add a comment..."
+                      className="flex-1 p-2 border rounded-lg"
+                    />
+                    <button
+                      onClick={() => handleComment(post._id)}
+                      disabled={!comment.trim()}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      Comment
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

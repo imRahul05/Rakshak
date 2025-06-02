@@ -13,11 +13,25 @@ export const axiosPrivate = axios.create({
 
 axiosPrivate.interceptors.request.use(
   (reqConfig) => {
-    const token = JSON.parse(localStorage.getItem(config.auth.tokenStorageKey));
+    const token = localStorage.getItem(config.auth.tokenStorageKey);
     if (token) {
       reqConfig.headers.Authorization = `Bearer ${token}`;
     }
     return reqConfig;
   },
   (error) => Promise.reject(error)
+);
+
+// Add response interceptor for handling auth errors
+axiosPrivate.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (error.response?.status === 401) {
+      // Token expired or invalid
+      localStorage.removeItem(config.auth.tokenStorageKey);
+      localStorage.removeItem(config.auth.userStorageKey);
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
 );

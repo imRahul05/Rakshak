@@ -5,6 +5,19 @@ import morgan from 'morgan';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import config from './config/index.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Routes
+import authRoutes from './routes/auth.js';
+import incidentRoutes from './routes/incidents.js';
+import chatRoutes from './routes/chat.js';
+import communityRoutes from './routes/community.js';
+import responderRoutes from './routes/responder.js';
+
+// Get directory name
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Create Express app
 const app = express();
@@ -23,31 +36,22 @@ const io = new Server(httpServer, {
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 
-// Import routes
-import authRoutes from './routes/auth.js';
-import incidentRoutes from './routes/incidents.js';
-import responderRoutes from './routes/responder.js';
+// Serve uploads directory statically
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Routes
-app.get('/', (req, res) => {
-  res.json({ message: 'Welcome to Rakshak API' });
-});
-
-// Use routes
 app.use('/api/auth', authRoutes);
 app.use('/api/incidents', incidentRoutes);
+app.use('/api/chat', chatRoutes);
+app.use('/api/community', communityRoutes);
 app.use('/api/responder', responderRoutes);
 
-// Socket.IO connection handling
-io.on('connection', (socket) => {
-  console.log('A user connected');
-
-  socket.on('disconnect', () => {
-    console.log('User disconnected');
-  });
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ message: err.message || 'Something went wrong!' });
 });
 
 // Connect to MongoDB
@@ -56,11 +60,22 @@ mongoose
   .then(() => {
     console.log('Connected to MongoDB');
     // Start server
-    httpServer.listen(config.port, () => {
-      console.log(`Server is running on port ${config.port}`);
+    const PORT = config.port || 8000;
+    httpServer.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
     });
   })
-  .catch((error) => {
-    console.error('MongoDB connection error:', error);
-    process.exit(1);
+  .catch((err) => {
+    console.error('MongoDB connection error:', err);
   });
+
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+  console.log('A user connected');
+  
+  socket.on('disconnect', () => {
+    console.log('User disconnected');
+  });
+});
+
+export default app;

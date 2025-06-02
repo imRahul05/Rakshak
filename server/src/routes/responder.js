@@ -4,6 +4,21 @@ import User from '../models/User.js';
 
 const router = express.Router();
 
+// Get available responders
+router.get('/available', [auth, authorize('moderator')], async (req, res) => {
+  try {
+    const responders = await User.find({
+      role: 'responder',
+      status: 'active',
+    }).select('name email status location');
+
+    res.json({ responders });
+  } catch (error) {
+    console.error('Error fetching responders:', error);
+    res.status(500).json({ message: 'Error fetching available responders' });
+  }
+});
+
 // Update responder location
 router.post('/location', [auth, authorize('responder')], async (req, res) => {
   try {

@@ -6,7 +6,7 @@ const loadInitialState = () => {
   const user = localStorage.getItem(config.auth.userStorageKey);
   return {
     user: user ? JSON.parse(user) : null,
-    token: token ? JSON.parse(token) : null,
+    token: token || null,
     isLoading: false,
     error: null,
   };
@@ -22,7 +22,7 @@ const authSlice = createSlice({
       const { user, token } = action.payload;
       state.user = user;
       state.token = token;
-      localStorage.setItem(config.auth.tokenStorageKey, JSON.stringify(token));
+      localStorage.setItem(config.auth.tokenStorageKey, token);
       localStorage.setItem(config.auth.userStorageKey, JSON.stringify(user));
     },
     setUser: (state, action) => {

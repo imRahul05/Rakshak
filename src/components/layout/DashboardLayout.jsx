@@ -1,6 +1,6 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useState, useMemo } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { selectCurrentUser, logout } from '../../features/auth/authSlice';
 import {
@@ -12,21 +12,42 @@ import {
   UserGroupIcon,
   ChartBarIcon,
   BellIcon,
+  UserCircleIcon,
+  DocumentMagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
-
-const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
-  { name: 'Incidents Map', href: '/map', icon: MapIcon },
-  { name: 'Chat Rooms', href: '/chat', icon: ChatBubbleLeftIcon },
-  { name: 'Community', href: '/community', icon: UserGroupIcon },
-  { name: 'Analytics', href: '/analytics', icon: ChartBarIcon },
-];
 
 const DashboardLayout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const user = useSelector(selectCurrentUser);
+  const location = useLocation();
+
+  const navigation = useMemo(() => {
+    const baseNavigation = [
+      { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
+      { name: 'Community', href: '/community', icon: UserGroupIcon },
+      { name: 'Chat Rooms', href: '/chat', icon: ChatBubbleLeftIcon },
+      { name: 'Profile', href: '/profile', icon: UserCircleIcon },
+    ];
+
+    // Regular user pages
+    if (user?.role === 'user') {
+      baseNavigation.push(
+        { name: 'My Incidents', href: '/incidents/me', icon: DocumentMagnifyingGlassIcon }
+      );
+    }
+
+    // Staff pages (moderator, responder, admin)
+    if (['admin', 'moderator', 'responder'].includes(user?.role)) {
+      baseNavigation.push(
+        { name: 'Incidents Map', href: '/map', icon: MapIcon },
+        { name: 'Analytics', href: '/analytics', icon: ChartBarIcon }
+      );
+    }
+
+    return baseNavigation;
+  }, [user?.role]);
 
   const handleLogout = () => {
     dispatch(logout());

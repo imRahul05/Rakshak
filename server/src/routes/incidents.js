@@ -1,7 +1,8 @@
 import express from 'express';
-import { body, param, query } from 'express-validator';
+import { body, param, query, validationResult } from 'express-validator';
 import { auth, authorize } from '../middlewares/auth.js';
 import Incident from '../models/Incident.js';
+import User from '../models/User.js';
 
 const router = express.Router();
 
@@ -47,11 +48,8 @@ router.get('/', auth, async (req, res) => {
         { assignedTo: req.user._id },
       ];
     } else if (req.user.role === 'responder') {
-      query.$or = [
-        { assignedTo: req.user._id },
-        { status: 'pending' },
-        { status: 'active' },
-      ];
+      // Only show incidents assigned to this responder
+      query.assignedTo = req.user._id;
     }
 
     const skip = (page - 1) * limit;
@@ -59,14 +57,50 @@ router.get('/', auth, async (req, res) => {
     const incidents = await Incident.find(query)
       .populate('reportedBy', 'name email')
       .populate('assignedTo', 'name email')
+      .populate('updates.updatedBy', 'name email')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
 
     const total = await Incident.countDocuments(query);
 
+    // Add basic timeline info to each incident
+    const incidentsWithTimeline = incidents.map(incident => {
+      const timeline = [
+        {
+          status: 'reported',
+          timestamp: incident.createdAt,
+          message: 'Incident reported',
+          updatedBy: incident.reportedBy
+        }
+      ];
+
+      if (incident.updates && incident.updates.length > 0) {
+        timeline.push({
+          status: incident.status,
+          timestamp: incident.updates[incident.updates.length - 1].timestamp,
+          message: incident.updates[incident.updates.length - 1].message,
+          updatedBy: incident.updates[incident.updates.length - 1].updatedBy
+        });
+      }
+
+      if (incident.resolvedAt) {
+        timeline.push({
+          status: 'resolved',
+          timestamp: incident.resolvedAt,
+          message: 'Incident resolved',
+          updatedBy: incident.updates[incident.updates.length - 1]?.updatedBy
+        });
+      }
+
+      return {
+        ...incident.toObject(),
+        timeline: timeline.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+      };
+    });
+
     res.json({
-      incidents,
+      incidents: incidentsWithTimeline,
       currentPage: page,
       totalPages: Math.ceil(total / limit),
       total,
@@ -92,7 +126,33 @@ router.get(
         return res.status(404).json({ message: 'Incident not found' });
       }
 
-      res.json(incident);
+      // Create a timeline from the incident data
+      const timeline = [
+        {
+          status: 'reported',
+          timestamp: incident.createdAt,
+          message: 'Incident reported',
+          updatedBy: incident.reportedBy,
+        },
+        ...incident.updates,
+      ];
+
+      if (incident.resolvedAt) {
+        timeline.push({
+          status: 'resolved',
+          timestamp: incident.resolvedAt,
+          message: 'Incident resolved',
+          updatedBy: incident.updates[incident.updates.length - 1]?.updatedBy,
+        });
+      }
+
+      // Sort timeline by timestamp
+      timeline.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+      res.json({ 
+        ...incident.toObject(), 
+        timeline 
+      });
     } catch (error) {
       console.error('Get incident error:', error);
       res.status(500).json({ message: 'Error fetching incident' });
@@ -120,6 +180,7 @@ router.post(
       const incident = new Incident({
         ...req.body,
         reportedBy: req.user._id,
+        reporterEmail: req.user.email,
         location: {
           type: 'Point',
           coordinates: req.body.location.coordinates,
@@ -215,20 +276,42 @@ router.post(
     param('id').isMongoId().withMessage('Invalid incident ID'),
     body('responders')
       .isArray()
-      .withMessage('Responders must be an array of IDs'),
+      .withMessage('Responders must be an array of IDs')
+      .notEmpty()
+      .withMessage('At least one responder must be selected'),
+    body('responders.*').isMongoId().withMessage('Invalid responder ID'),
   ],
   async (req, res) => {
     try {
-      const incident = await Incident.findById(req.params.id);
+      // Validate request
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ message: errors.array()[0].msg });
+      }
 
+      const incident = await Incident.findById(req.params.id);
       if (!incident) {
         return res.status(404).json({ message: 'Incident not found' });
       }
 
-      incident.assignedTo = req.body.responders;
+      // Verify all responders exist and are active
+      const responders = await User.find({
+        _id: { $in: req.body.responders },
+        role: 'responder',
+        status: 'active',
+      });
+
+      if (responders.length !== req.body.responders.length) {
+        return res.status(400).json({ 
+          message: 'One or more selected responders are not available' 
+        });
+      }
+
+      // Update incident
+      incident.assignedTo = responders.map(r => r._id);
       incident.status = 'active';
       incident.updates.push({
-        message: 'Responders assigned to incident',
+        message: `${responders.length} responder${responders.length > 1 ? 's' : ''} assigned to incident`,
         status: 'active',
         updatedBy: req.user._id,
       });

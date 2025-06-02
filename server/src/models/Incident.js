@@ -42,6 +42,10 @@ const incidentSchema = new mongoose.Schema(
       ref: 'User',
       required: true,
     },
+    reporterEmail: {
+      type: String,
+      required: true,
+    },
     assignedTo: [{
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
