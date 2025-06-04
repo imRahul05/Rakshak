@@ -48,8 +48,17 @@ router.get('/', auth, async (req, res) => {
         { assignedTo: req.user._id },
       ];
     } else if (req.user.role === 'responder') {
-      // Only show incidents assigned to this responder
-      query.assignedTo = req.user._id;
+      // Show incidents assigned to this responder
+      query.$and = [{
+        assignedTo: req.user._id
+      }];
+      
+      // Handle status filter if provided
+      if (status) {
+        query.$and.push({
+          status: { $in: status.split(',') }
+        });
+      }
     }
 
     const skip = (page - 1) * limit;
@@ -301,13 +310,13 @@ router.post(
         status: 'active',
       });
 
-      if (responders.length !== req.body.responders.length) {
+      if (responders.length !== req.body.responders.length) { 
         return res.status(400).json({ 
           message: 'One or more selected responders are not available' 
         });
       }
 
-      // Update incident
+      // Only update specific fields, keeping other fields intact
       incident.assignedTo = responders.map(r => r._id);
       incident.status = 'active';
       incident.updates.push({
@@ -315,6 +324,21 @@ router.post(
         status: 'active',
         updatedBy: req.user._id,
       });
+
+      // Preserve the reporterEmail
+    //   if (!incident.reporterEmail && incident.reportedBy) {
+    //     console.log(incident)
+    //     const reporter = await User.findById(incident.reportedBy).select('email');
+    //     if (reporter) {
+    //       incident.reporterEmail = reporter.email;
+    //     }
+    //   }
+     if (!incident.reporterEmail && incident.reportedBy) {
+  await incident.populate('reportedBy', 'email');
+  if (incident.reportedBy?.email) {
+    incident.reporterEmail = incident.reportedBy.email;
+  }
+}
 
       await incident.save();
 
